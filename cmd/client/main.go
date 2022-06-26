@@ -2,13 +2,14 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"io/ioutil"
 	"log"
-	"net"
 	"os"
 
 	con "github.com/jmarcantony/tchat/connection"
-	sec "github.com/jmarcantony/tchat/security"
 )
 
 const (
@@ -18,21 +19,25 @@ const (
 
 var currentRoom string
 
-func handshake(c net.Conn) con.Connection {
-	conn := con.Connection{C: c}
-	pubKey, privKey := sec.GenerateKey()
-	conn.PrivateKey = privKey
-	conn.C.Write(pubKey)
-
-	return conn
-}
-
-func main() {
-	c, err := net.Dial("tcp4", serverAddr+":"+port)
+func loadCert() []byte {
+	c, err := ioutil.ReadFile("../server/localhost.pem")
 	if err != nil {
 		log.Fatal(err)
 	}
-	conn := handshake(c)
+	return c
+}
+
+func main() {
+	roots := x509.NewCertPool()
+	if ok := roots.AppendCertsFromPEM(loadCert()); !ok {
+		log.Fatal("failed to parse root certificate")
+	}
+	config := &tls.Config{RootCAs: roots, ServerName: "localhost"}
+	c, err := tls.Dial("tcp4", serverAddr+":"+port, config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	conn := con.Connection{C: c}
 	s := bufio.NewScanner(os.Stdin)
 	fmt.Println(`
 ████████╗ ██████╗██╗  ██╗ █████╗ ████████╗
