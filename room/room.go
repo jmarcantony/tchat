@@ -1,8 +1,11 @@
 package room
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"math/rand"
+	"net"
 
 	con "github.com/jmarcantony/tchat/connection"
 )
@@ -16,11 +19,17 @@ type Room struct {
 	Members  []*Member `json:"-"`
 }
 
-func (r Room) Broadcast(msg []byte) {
-	fmt.Printf("Broadcatsing %s\n", msg)
+func (r Room) IsMember(remoteAddr string) (bool, *Member) {
 	for _, member := range r.Members {
-		member.Conn.Write(msg)
+		host, _, err := net.SplitHostPort(member.Conn.C.RemoteAddr().String())
+		if err != nil {
+			log.Println(err)
+		}
+		if host == remoteAddr {
+			return true, member
+		}
 	}
+	return false, nil
 }
 
 type RoomJson struct {
@@ -39,6 +48,8 @@ type Member struct {
 	Nickname string
 	Conn     con.Connection
 	Admin    bool
+	Ctx      context.Context
+	Cancel   context.CancelFunc
 }
 
 type Rooms []*Room

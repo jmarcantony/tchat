@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	serverAddr = "localhost"
-	port       = "9000"
+	serverAddr  = "localhost"
+	port        = "9000"
+	messagePort = "9090"
 )
 
 var (
@@ -29,15 +30,33 @@ var (
 )
 
 func loadCert() []byte {
-	c, err := ioutil.ReadFile("../server/localhost.pem")
+	c, err := ioutil.ReadFile("localhost.pem")
 	if err != nil {
 		log.Fatal(err)
 	}
 	return c
 }
 
-func recieveMessages(conn con.Connection) {
-	fmt.Println(conn.Read())
+func recieveMessages(conn con.Connection, id string) {
+	roots := x509.NewCertPool()
+	if ok := roots.AppendCertsFromPEM(loadCert()); !ok {
+		log.Fatal("failed to parse root certificate")
+	}
+	config := &tls.Config{RootCAs: roots, ServerName: "localhost"}
+	cReg, err := tls.Dial("tcp4", serverAddr+":"+messagePort, config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	c := con.Connection{C: cReg}
+	c.Write([]byte(id))
+	status := c.Read()
+	if status != "0" {
+		return
+	}
+	for {
+		fmt.Println("\n" + c.Read())
+		fmt.Printf("tchat@%s>> ", currentRoom)
+	}
 }
 
 func main() {
@@ -110,12 +129,11 @@ func main() {
 				}
 				conn.Write([]byte("0"))
 				currentRoom = status.Name
-				go recieveMessages(conn)
+				go recieveMessages(conn, cmd[1])
+				fmt.Printf("tchat@%s>> ", currentRoom)
 				for {
 					// TODO: Handle Room Functions
 					// TODO: Set nickname
-					// TODO: Concurrently recieve messages
-					fmt.Printf("tchat@%s>>", currentRoom)
 					s.Scan()
 					text := s.Text()
 					switch cmd := strings.Split(text, " "); cmd[0] {
@@ -126,10 +144,13 @@ func main() {
 						if nickname != "" {
 							conn.Write([]byte("n:" + nickname))
 						}
+						fmt.Printf("tchat@%s>> ", currentRoom)
 					default:
 						// TODO: Broadcast text to all memebers
 						if strings.TrimSpace(text) != "" {
 							conn.Write([]byte("m:" + text))
+						} else {
+							fmt.Printf("tchat@%s>> ", currentRoom)
 						}
 					}
 				}

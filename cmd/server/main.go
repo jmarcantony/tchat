@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -14,13 +15,23 @@ import (
 )
 
 // TODO: Use flags and yaml file to load port data etc
-const port = "9000"
+const (
+	port        = "9000"
+	messagePort = "9090"
+)
 
 var (
-	log         = logger.NewLogger("server.log")
-	connections []net.Conn
-	rooms       room.Rooms
+	log            = logger.NewLogger("server.log")
+	connections    []net.Conn
+	rooms          room.Rooms
+	messageChanels []chan []byte // make size dynamic in config
 )
+
+type Message struct {
+	Id       string `json="i"`
+	Nickname string `json="n"`
+	Message  string `json="m"`
+}
 
 func handleRoom(conn con.Connection, r *room.Room) {
 	// TODO: Handle unique nicknames
@@ -28,20 +39,27 @@ func handleRoom(conn con.Connection, r *room.Room) {
 	// TODO: Handle Personal Messages
 	// TODO: Handle Banning and Kicking
 	r.Len++
-	member := &room.Member{Conn: conn, Nickname: "Anonymous"} // TODO: Read Nickname
+	ctx, cancel := context.WithCancel(context.Background())
+	// TODO: cancel context when member is no longer in room
+	member := &room.Member{Conn: conn, Nickname: "Anonymous", Ctx: ctx, Cancel: cancel} // TODO: Read Nickname
 	r.Members = append(r.Members, member)
 	// TODO: Log joining of new member
 	fmt.Println("Someone joined", r.Name)
 	for {
 		text := conn.Read()
-		fmt.Printf("Hi%sJohn\n", text)
 		switch cmd := strings.Split(text, ":"); cmd[0] {
 		case "n": // n short for nickname
 			fmt.Println("someone changed nickname to", cmd[1])
 			member.Nickname = cmd[1]
 		default:
-			// fmt.Println(member.Nickname + ": " + text[2:])
-			r.Broadcast([]byte(member.Nickname + ": " + text[2:]))
+			m := Message{Id: r.Id, Nickname: member.Nickname, Message: text[2:]}
+			data, err := json.Marshal(m)
+			if err != nil {
+				log.Println(err)
+			}
+			for _, messageChan := range messageChanels {
+				messageChan <- data
+			}
 		}
 	}
 }
@@ -106,6 +124,7 @@ func main() {
 	}
 	defer l.Close()
 	log.Printf("Server listening on port %s", port)
+	go runMessageServer(serverKey, serverCert)
 	generalRoom, err := room.NewRoom("general", false, 5)
 	if err != nil {
 		log.Fatal(err)
